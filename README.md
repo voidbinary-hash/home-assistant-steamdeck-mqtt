@@ -58,8 +58,9 @@ Since Steam Deck runs SteamOS, we need to: 1️⃣ Disable the read-only filesys
 
 📌 Step 2.1: Disable Steam Deck's Read-Only Filesystem
 
+```bash
 sudo steamos-readonly disable
-
+```
 This allows us to install software and create persistent scripts.
 
 
@@ -67,7 +68,10 @@ This allows us to install software and create persistent scripts.
 
 📌 Step 2.2: Install Required Packages
 
+
+```bash
 sudo pacman -S --noconfirm curl
+```
 
 This ensures we can send HTTP requests to Home Assistant.
 
@@ -78,10 +82,13 @@ This ensures we can send HTTP requests to Home Assistant.
 
 1️⃣ Create the script file:
 
+```bash
 nano ~/battery_rest.sh
+```
 
 2️⃣ Paste this script inside:
 
+```bash
 #!/bin/bash
 
 # Fetch Battery Level & Charging Status
@@ -120,15 +127,20 @@ curl -X POST "$HA_URL" \
             \"available_storage\": \"$DISK_SPACE\"
           }
         }"
+```
 
 3️⃣ Save and exit (CTRL + X → Y → ENTER)
 4️⃣ Make the script executable:
 
+```bash
 chmod +x ~/battery_rest.sh
+```
 
 5️⃣ Test it manually:
 
+```bash
 ~/battery_rest.sh
+```
 
 ✅ If it works, you should see battery data in Home Assistant → Developer Tools → States.
 
@@ -144,11 +156,18 @@ To ensure the script runs every minute, we’ll use a systemd service and timer.
 
 1️⃣ Create the service file:
 
+```bash
 mkdir -p ~/.config/systemd/user
+
+```
+
+```bash
 nano ~/.config/systemd/user/battery_update.service
+```
 
 2️⃣ Paste this inside:
 
+```bash
 [Unit]
 Description=Send Steam Deck Battery Data to Home Assistant
 After=network-online.target
@@ -163,6 +182,7 @@ NoNewPrivileges=true
 
 [Install]
 WantedBy=default.target
+```
 
 3️⃣ Save and exit (CTRL + X → Y → ENTER).
 
@@ -173,10 +193,13 @@ WantedBy=default.target
 
 1️⃣ Create the timer file:
 
+```bash
 nano ~/.config/systemd/user/battery_update.timer
+```
 
 2️⃣ Paste this inside:
 
+```bash
 [Unit]
 Description=Run Steam Deck Battery Update Every Minute
 
@@ -187,6 +210,7 @@ Unit=battery_update.service
 
 [Install]
 WantedBy=timers.target
+```
 
 3️⃣ Save and exit (CTRL + X → Y → ENTER).
 
@@ -197,20 +221,31 @@ WantedBy=timers.target
 
 1️⃣ Reload systemd:
 
+```bash
 systemctl --user daemon-reload
+```
 
 2️⃣ Enable and start the service:
 
+```bash
 systemctl --user enable --now battery_update.service
+```
 
 3️⃣ Enable and start the timer:
 
+```bash
 systemctl --user enable --now battery_update.timer
+```
 
 4️⃣ Check if it’s working:
 
+```bash
 systemctl --user status battery_update.service
+```
+
+```bash
 systemctl --user list-timers --all
+```
 
 ✅ Now, the Steam Deck automatically sends battery data to Home Assistant every minute!
 
