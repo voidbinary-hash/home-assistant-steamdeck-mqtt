@@ -1,231 +1,311 @@
-# home-assistant-steamdeck-mqtt
-Create Battery Entity for Steam Deck in Home Assistant
-
-
-Prerequisites for This Guide
-
-This guide is specifically for Home Assistant Core (the version installed manually on Linux, not the Home Assistant OS or Supervised versions). Before proceeding, ensure you have the following:
-
-✅ Home Assistant Core Installed – Running on a Linux server or Raspberry Pi.
-✅ SSH Access to Home Assistant & Steam Deck – Required for command-line setup.
-✅ Basic Linux Knowledge – Comfort with editing configuration files and using nano.
-✅ MQTT Broker (Mosquitto) – Installed on the Home Assistant server.
-✅ Steam Deck in Desktop Mode – Used for configuring battery monitoring. Battery monitoring works in gaming mode as well. 
-
-I dont believe the updates will continue pushing to home assistant while the device is asleep. 
-
-If you're using Home Assistant OS (Hass.io) or Supervised, the MQTT setup might differ slightly, as the add-on store provides an easier way to install Mosquitto.
+🚀 Full Guide: Integrating Steam Deck Battery, Storage, and Installed Games into Home Assistant
 
 
 
-🔹 Step 1: Install and Configure Mosquitto MQTT Broker on Home Assistant Server
-
-The MQTT broker is the central hub where the Steam Deck will send battery data, and Home Assistant will read it.
-
-1️⃣ Install Mosquitto on the Home Assistant Server via SSH
-
-Run:
-
-sudo apt update && sudo apt install mosquitto mosquitto-clients -y
-
-Enable and start the service:
-
-sudo systemctl enable mosquitto
-sudo systemctl start mosquitto
-
-2️⃣ Set Up an MQTT User (Optional)
-
-If you want authentication:
-
-sudo mosquitto_passwd -c /etc/mosquitto/passwd mqttuser
-
-Restart Mosquitto:
-
-sudo systemctl restart mosquitto
-
-3️⃣ Configure Mosquitto
-
-Edit the Mosquitto config file:
-
-sudo nano /etc/mosquitto/mosquitto.conf
-
-Ensure it includes:
-
-listener 1883
-password_file /etc/mosquitto/passwd
-allow_anonymous false
-
-Restart Mosquitto:
-
-sudo systemctl restart mosquitto
-
-
----
-
-🔹 Step 2: Set Up Home Assistant to Use MQTT
-
-1️⃣ Install the MQTT Integration
-
-1. Open Home Assistant.
-
-
-2. Go to Settings → Devices & Services → Add Integration.
-
-
-3. Search for MQTT and select it.
-
-
-4. Configure:
-
-Broker: <Home Assistant Server IP>
-
-Port: 1883
-
-Username: mqttuser
-
-Password: mqttpassword
+This guide will walk you through integrating Steam Deck battery, charging status, installed games, and available storage into Home Assistant.
 
 
 
-5. Click Submit.
+🔹 Prerequisites
 
 
 
-📖 Setting Up MQTT on the Steam Deck for Home Assistant Integration
+Before starting, ensure you have:
 
-This guide explains how to install Mosquitto, send battery data to Home Assistant, and automate updates using cron on the Steam Deck. It also includes steps to unlock and re-lock the Steam Deck’s filesystem.
+✅ Home Assistant
+
+✅ SSH access to your Steam Deck
+
+✅ A Home Assistant Long-Lived Access Token (from Profile → Create Token)
+
+✅ A Home Assistant entity called sensor.steam_deck_battery
 
 
----
 
-🔹 Step 1: Unlock the Steam Deck Filesystem
+🔹 Step 1: Generate a Home Assistant API Token
 
-By default, the Steam Deck’s filesystem is read-only, preventing software installations. To allow installations, you must temporarily disable read-only mode:
+
+
+Your Steam Deck needs an API key to communicate with Home Assistant.
+
+
+
+📌 How to Get Your API Token
+
+
+
+1️⃣ Log in to Home Assistant via your web browser.
+
+2️⃣ Click your Profile Picture (bottom-left corner).
+
+3️⃣ Scroll to Long-Lived Access Tokens → Click "Create Token"
+
+4️⃣ Name it (e.g., "Steam Deck Integration")
+
+5️⃣ Copy and save the token (Home Assistant will NOT show it again).
+
+
+
+🔹 Step 2: Prepare Your Steam Deck
+
+
+
+Since Steam Deck runs SteamOS, we need to:
+
+1️⃣ Disable the read-only filesystem
+
+2️⃣ Install necessary tools
+
+3️⃣ Create a script to send data to Home Assistant
+
+4️⃣ Set up an automatic systemd service
+
+
+
+📌 Step 2.1: Disable Steam Deck's Read-Only Filesystem
+
+Run the following command:
 
 sudo steamos-readonly disable
 
-This allows you to install necessary packages like Mosquitto and Cron.
+📌 Step 2.2: Install Required Packages
 
-You can either ssh into your deck or do the next piece directly in the terminal in desktop mode. 
+Run:
 
----
+sudo pacman -S --noconfirm curl
 
-🔹 Step 2: Install Mosquitto and Cron
+📌 Step 2.3: Create a Battery & Storage Monitoring Script
 
-Now that the filesystem is writable, install Mosquitto (for sending MQTT messages) and Cron (to automate updates).
+Create the script file:
 
-1️⃣ Open a terminal in Desktop Mode.
-2️⃣ Install Mosquitto (MQTT client tools):
-
-sudo pacman -S mosquitto
-
-3️⃣ Install Cron (cronie) to schedule automatic updates:
-
-sudo pacman -S cronie
-
-4️⃣ Enable and start the cron service:
-
-sudo systemctl enable cronie
-sudo systemctl start cronie
-
-5️⃣ Verify installation:
-
-mosquitto_pub --help
-systemctl status cronie
-
-✅ If "active (running)" appears for Cron, it’s working.
-
-❌ If Cron is not running, restart it:
-
-sudo systemctl restart cronie
+nano ~/battery_rest.sh
 
 
-
----
-
-🔹 Step 3: Create a Script to Send Battery Data
-
-The Steam Deck stores battery information in /sys/class/power_supply/. This script will read the battery percentage and send it to Home Assistant via MQTT.
-
-1️⃣ Find the battery device name:
-
-ls /sys/class/power_supply/
-
-Expected output:
-
-ACAD  BAT1
-
-If you see BAT1, the battery percentage is stored at:
-
-/sys/class/power_supply/BAT1/capacity
-
-2️⃣ Create the battery monitoring script:
-
-nano ~/battery_mqtt.sh
-
-3️⃣ Add the following content (replace <Home Assistant IP>, mqttuser, and mqttpassword):
 
 #!/bin/bash
+
+
+
+# Fetch Battery Level & Charging Status
+
 BATTERY_LEVEL=$(cat /sys/class/power_supply/BAT1/capacity)
-mosquitto_pub -h <Home Assistant IP> -t "steamdeck/battery" -m "$BATTERY_LEVEL" -u "mqttuser" -P "mqttpassword"
 
-4️⃣ Save and exit (CTRL + X → Y → ENTER).
+CHARGING_STATUS=$(cat /sys/class/power_supply/BAT1/status)  # "Charging" or "Discharging"
 
-5️⃣ Make the script executable:
+GAMES_INSTALLED=$(ls -1 ~/Steam/steamapps/common/ | wc -l)
 
-chmod +x ~/battery_mqtt.sh
+DISK_SPACE=$(df -h ~ | awk 'NR==2 {print $4}')
 
-6️⃣ Manually test the script:
 
-~/battery_mqtt.sh
 
-If no errors appear, check Settings → Devices & Services → MQTT → Listen to a Topic in Home Assistant to confirm the message was received.
+# Home Assistant API Information
+
+HA_URL="http://YOUR_HA_IP:8123/api/states/sensor.steam_deck_battery"
+
+HA_TOKEN="Bearer YOUR_LONG_LIVED_ACCESS_TOKEN"
+
+
+
+# Convert Charging Status to Boolean
+
+if [ "$CHARGING_STATUS" == "Charging" ]; then
+
+    CHARGING="true"
+
+else
+
+    CHARGING="false"
+
+fi
+
+
+
+# Send Data to Home Assistant
+
+curl -X POST "$HA_URL"      -H "Authorization: $HA_TOKEN"      -H "Content-Type: application/json"      -d "{
+
+          "state": "$BATTERY_LEVEL",
+
+          "attributes": {
+
+            "unit_of_measurement": "%",
+
+            "device_class": "battery",
+
+            "friendly_name": "Steam Deck Battery",
+
+            "charging": "$CHARGING",
+
+            "installed_games": "$GAMES_INSTALLED",
+
+            "available_storage": "$DISK_SPACE"
+
+          }
+
+        }"
+
+
+
+🔹 Step 3: Automate with Systemd
+
+📌 Step 3.1: Create a Systemd Service
+
+Create the service file:
+
+nano ~/.config/systemd/user/battery_update.service
+
+
+
+[Unit]
+
+Description=Send Steam Deck Battery Data to Home Assistant
+
+After=network-online.target
+
+
+
+[Service]
+
+ExecStart=/bin/bash /home/deck/battery_rest.sh
+
+Restart=on-failure
+
+RestartSec=10s
+
+StandardOutput=journal
+
+StandardError=journal
+
+NoNewPrivileges=true
+
+
+
+[Install]
+
+WantedBy=default.target
+
+
+
+📌 Step 3.2: Create a Systemd Timer
+
+Create the timer file:
+
+nano ~/.config/systemd/user/battery_update.timer
+
+
+
+[Unit]
+
+Description=Run Steam Deck Battery Update Every Minute
+
+
+
+[Timer]
+
+OnBootSec=1min
+
+OnUnitActiveSec=1min
+
+Unit=battery_update.service
+
+
+
+[Install]
+
+WantedBy=timers.target
+
+
+
+📌 Step 3.3: Enable and Start the Services
+
+Run the following commands:
+
+
+
+systemctl --user daemon-reload
+
+systemctl --user enable --now battery_update.service
+
+systemctl --user enable --now battery_update.timer
+
+systemctl --user status battery_update.service
+
+systemctl --user list-timers --all
+
+
+
+🔹 Step 4: Verify and Display in Home Assistant
+
+Go to Developer Tools → States and search for `sensor.steam_deck_battery`.
+
+📌 Step 4.2: Add to Your Dashboard
+
+
+
+✅ Entities Card:
+
+type: entities
+
+entities:
+
+  - entity: sensor.steam_deck_battery
+
+
+
+✅ Tile Card:
+
+type: tile
+
+entity: sensor.steam_deck_battery
+
+
+
+If you have issues you can try updating the Home Assistant yaml by adding this near the bottom
+
+
+
+📌 Optional: Update configuration.yaml
+
+
+
+If needed, you can manually define the battery sensor using a template:
+
+
+
+Sensor:
+
+-	Platform: template
+
+    Sensors:
+
+      Steam_deck_battery:
+
+        Friendly_name: “Steam Deck Battery”
+
+        Value_template: “{{ states(‘sensor.steam_deck_battery’) }}”
+
+        Unit_of_measurement: “%”
+
+        Device_class: battery
+
+        Attributes:
+
+          Charging: “{{ state_attr(‘sensor.steam_deck_battery’, ‘charging’) }}”
+
+          Installed_games: “{{ state_attr(‘sensor.steam_deck_battery’, ‘installed_games’) }}”
+
+          Available_storage: “{{ state_attr(‘sensor.steam_deck_battery’, ‘available_storage’) }}”
+
+
 
 
 
 ---
 
-🔹 Step 4: Automate Battery Updates with Cron
+🚀 Final Steps
 
-Now, set up cron to run the script automatically every minute.
+✔ Steam Deck sends battery, charging, storage, and game updates every minute
 
-1️⃣ Edit the crontab file:
+✔ Home Assistant dynamically updates the battery icon
 
-crontab -e
-
-2️⃣ Add this line at the bottom (this runs the script every minute):
-
-* * * * * ~/battery_mqtt.sh
-
-3️⃣ Save and exit (CTRL + X → Y → ENTER).
-
-4️⃣ Verify that cron saved the job:
-
-crontab -l
-
-Expected output:
-
-* * * * * ~/battery_mqtt.sh
-
-5️⃣ Check if cron is running:
-
-systemctl status cronie
-
-✅ If "active (running)" appears, cron is working.
-
-❌ If it's not running, restart it:
-
-sudo systemctl restart cronie
-
-
-
----
-
-🔹 Step 5: Re-Lock the Steam Deck Filesystem
-
-Once cron is installed and running, re-enable the read-only mode to protect the system:
-
-sudo steamos-readonly enable
-
-
----
+✔ Installed games & available storage are also tracked
